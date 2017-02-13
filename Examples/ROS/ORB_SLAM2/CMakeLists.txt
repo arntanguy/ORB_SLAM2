@@ -40,6 +40,10 @@ endif()
 
 find_package(Eigen3 3.1.0 REQUIRED)
 find_package(Pangolin REQUIRED)
+find_package(catkin REQUIRED COMPONENTS
+roscpp
+tf2
+)
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
@@ -87,8 +91,10 @@ ${LIBS}
 )
 
 # Node for RGB-D camera
+add_definitions(-DHAS_ROS)
 rosbuild_add_executable(RGBD
 src/ros_rgbd.cc
+src/publisher.cc
 )
 
 target_link_libraries(RGBD

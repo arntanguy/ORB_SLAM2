@@ -34,6 +34,9 @@
 
 #include"../../../include/System.h"
 
+#include "publisher.h"
+#include <opencv2/core/eigen.hpp>
+
 using namespace std;
 
 class ImageGrabber
@@ -48,22 +51,19 @@ public:
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "RGBD");
-    ros::start();
+    ros::NodeHandle nh = *ROSBridge::get_node_handle();
 
     if(argc != 3)
     {
-        cerr << endl << "Usage: rosrun ORB_SLAM2 RGBD path_to_vocabulary path_to_settings" << endl;        
+        cerr << endl << "Usage: rosrun ORB_SLAM2 RGBD path_to_vocabulary path_to_settings" << endl;
         ros::shutdown();
         return 1;
-    }    
+    }
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::RGBD,true);
 
     ImageGrabber igb(&SLAM);
-
-    ros::NodeHandle nh;
 
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
     message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "camera/depth_registered/image_raw", 1);
@@ -109,7 +109,10 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
         return;
     }
 
-    mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
+    cv::Mat pose = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
+    Eigen::Matrix4f b;
+    cv2eigen(pose,b);
+    ROSBridge::update_pose(Eigen::Affine3d(b.cast<double>()));
 }
 
 
