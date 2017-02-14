@@ -43,6 +43,7 @@ find_package(Pangolin REQUIRED)
 find_package(catkin REQUIRED COMPONENTS
 roscpp
 tf2
+tf2_eigen
 )
 
 include_directories(

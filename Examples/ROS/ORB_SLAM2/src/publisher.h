@@ -24,32 +24,6 @@
 #include <memory>
 #include <vector>
 #include <Eigen/Geometry>
-
-namespace ros
-{
-  class NodeHandle;
-} /* ros */
-
-class ROSBridgeImpl;
-
-struct ROSBridge
-{
-  static std::shared_ptr<ros::NodeHandle> get_node_handle();
-  /* @brief Update SLAM Pose */
-  static void update_pose(const Eigen::Affine3d& pose);
-  // TODO
-  // static void update_map();
-
-  /*! @brief Stop ROS */
-  static void shutdown();
-
-private:
-  static std::unique_ptr<ROSBridgeImpl> impl;
-};
-
-
-#ifdef HAS_ROS
-
 #include <ros/ros.h>
 #include <nav_msgs/Odometry.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -60,7 +34,7 @@ private:
 class ORBSLAM2Publisher
 {
  public:
-  ORBSLAM2Publisher(const std::string& prefix, unsigned int rate);
+  ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate);
   ~ORBSLAM2Publisher();
 
   void update_pose(const Eigen::Affine3d& pose);
@@ -78,6 +52,4 @@ class ORBSLAM2Publisher
   std::thread th;
   geometry_msgs::TransformStamped tf;
 };
-
-#endif
 

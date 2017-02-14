@@ -42,34 +42,44 @@ using namespace std;
 class ImageGrabber
 {
 public:
-    ImageGrabber(ORB_SLAM2::System* pSLAM):mpSLAM(pSLAM){}
+    ImageGrabber(std::shared_ptr<ros::NodeHandle> nh, ORB_SLAM2::System* pSLAM)
+        : mpSLAM(pSLAM), rgb_sub(*nh, "/camera/rgb/image_raw", 1),
+        depth_sub(*nh, "camera/depth_registered/image_raw", 1),
+        sync(sync_pol(10), rgb_sub,depth_sub),
+        pub(nh, "/orb_slam2", 100)
+  {
+    sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD, this,_1,_2));
+  }
 
     void GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const sensor_msgs::ImageConstPtr& msgD);
 
     ORB_SLAM2::System* mpSLAM;
+
+    message_filters::Subscriber<sensor_msgs::Image> rgb_sub;
+    message_filters::Subscriber<sensor_msgs::Image> depth_sub;
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
+    message_filters::Synchronizer<sync_pol> sync;
+
+    ORBSLAM2Publisher pub;
 };
+
 
 int main(int argc, char **argv)
 {
-    ros::NodeHandle nh = *ROSBridge::get_node_handle();
-
+    ros::init(argc, argv, "orb_slam2");
     if(argc != 3)
     {
         cerr << endl << "Usage: rosrun ORB_SLAM2 RGBD path_to_vocabulary path_to_settings" << endl;
         ros::shutdown();
         return 1;
     }
+    auto nh = std::make_shared<ros::NodeHandle>();
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::RGBD,true);
 
-    ImageGrabber igb(&SLAM);
+    ImageGrabber igb(nh, &SLAM);
 
-    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
-    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "camera/depth_registered/image_raw", 1);
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
-    message_filters::Synchronizer<sync_pol> sync(sync_pol(10), rgb_sub,depth_sub);
-    sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD,&igb,_1,_2));
 
     ros::spin();
 
@@ -110,9 +120,45 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     }
 
     cv::Mat pose = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
-    Eigen::Matrix4f b;
-    cv2eigen(pose,b);
-    ROSBridge::update_pose(Eigen::Affine3d(b.cast<double>()));
+    // If tracking suceeded
+    if(!pose.empty())
+    {
+      Eigen::Matrix4f b_inv = Eigen::Matrix4f::Identity();
+      cv2eigen(pose.inv(),b_inv);
+
+      // Eigen::Matrix4f b_inv = b.inverse();
+      Eigen::Matrix3f Rwc = b_inv.block<3,3>(0,0); //Rcw.transpose();
+      Eigen::Vector3f twc = b_inv.block<3,1>(0,3); //-Rwc * tcw;
+
+      // Matrix to flip sign of one of the z axis
+      Eigen::Matrix3f Sz = Eigen::Matrix3f::Identity();
+      Sz(2,2) = -1;
+
+      // Convert rotation to right-handed coordinate system
+      Eigen::Matrix3f rh = Sz * Rwc * Sz;
+      // Rotation axes
+      // ROS (x,y,z) -> ORB (z,x,y)
+      Eigen::Matrix3f rot;
+      rot << 0,1,0,
+          0,0,1,
+          1,0,0;
+      // Swap axes so that we have x forward, and y left
+      // How does this work exactly?
+      Eigen::Matrix3f r_xfwd = rot.inverse() * rh * rot;
+
+      // Remap translations to ROS frame
+      Eigen::Vector3f trans;
+      trans(0) = twc(2);
+      trans(1) = -twc(0);
+      trans(2) = -twc(1);
+      // std::cout << "trans: " << trans << std::endl;
+
+      // Set transformed pose
+      Eigen::Matrix4f p = Eigen::Matrix4f::Identity();
+      p.block<3,3>(0,0) = r_xfwd;
+      p.block<3,1>(0,3) = trans;
+      pub.update_pose(Eigen::Affine3d(p.cast<double>()));
+    }
 }
 
 
