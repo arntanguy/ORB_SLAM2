@@ -123,40 +123,8 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
     // If tracking suceeded
     if(!pose.empty())
     {
-      Eigen::Matrix4f b_inv = Eigen::Matrix4f::Identity();
-      cv2eigen(pose.inv(),b_inv);
-
-      // Eigen::Matrix4f b_inv = b.inverse();
-      Eigen::Matrix3f Rwc = b_inv.block<3,3>(0,0); //Rcw.transpose();
-      Eigen::Vector3f twc = b_inv.block<3,1>(0,3); //-Rwc * tcw;
-
-      // Matrix to flip sign of one of the z axis
-      Eigen::Matrix3f Sz = Eigen::Matrix3f::Identity();
-      Sz(2,2) = -1;
-
-      // Convert rotation to right-handed coordinate system
-      Eigen::Matrix3f rh = Sz * Rwc * Sz;
-      // Rotation axes
-      // ROS (x,y,z) -> ORB (z,x,y)
-      Eigen::Matrix3f rot;
-      rot << 0,1,0,
-          0,0,1,
-          1,0,0;
-      // Swap axes so that we have x forward, and y left
-      // How does this work exactly?
-      Eigen::Matrix3f r_xfwd = rot.inverse() * rh * rot;
-
-      // Remap translations to ROS frame
-      Eigen::Vector3f trans;
-      trans(0) = twc(2);
-      trans(1) = -twc(0);
-      trans(2) = -twc(1);
-      // std::cout << "trans: " << trans << std::endl;
-
-      // Set transformed pose
       Eigen::Matrix4f p = Eigen::Matrix4f::Identity();
-      p.block<3,3>(0,0) = r_xfwd;
-      p.block<3,1>(0,3) = trans;
+      cv2eigen(pose,p);
       pub.update_pose(Eigen::Affine3d(p.cast<double>()));
     }
 }
