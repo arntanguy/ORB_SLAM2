@@ -1,7 +1,10 @@
 #include "publisher.h"
-#include <tf2_eigen/tf2_eigen.h>
 
-class ORBSLAM2Publisher;
+#include <tf2_eigen/tf2_eigen.h>
+#include <opencv2/core/eigen.hpp>
+#include "../../../include/MapPoint.h"
+
+using ORB_SLAM2::MapPoint;
 
 ORBSLAM2Publisher::ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate)
   :
@@ -11,7 +14,7 @@ ORBSLAM2Publisher::ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const 
     running(true),
     th(std::bind(&ORBSLAM2Publisher::publishThread, this))
 {
-
+  cloud_pub = nh->advertise<PCLCloud>(prefix+"/cloud", 1);
 };
 
 ORBSLAM2Publisher::~ORBSLAM2Publisher()
@@ -47,7 +50,6 @@ void ORBSLAM2Publisher::update_pose(const Eigen::Affine3d& pose)
   trans(0) = twc(2);
   trans(1) = -twc(0);
   trans(2) = -twc(1);
-  // std::cout << "trans: " << trans << std::endl;
 
   // Set transformed pose
   Eigen::Affine3d p = Eigen::Affine3d::Identity();
@@ -61,6 +63,36 @@ void ORBSLAM2Publisher::update_pose(const Eigen::Affine3d& pose)
   mut.lock();
   tf = msg;
   mut.unlock();
+}
+
+void ORBSLAM2Publisher::update_tracked_map(const std::vector<MapPoint*>& map_points)
+{
+  static size_t prev_size = 0;
+  if(map_points.size() != prev_size)
+  {
+    PCLCloud cloud;
+    cloud.header.frame_id = "map";
+    pcl_conversions::toPCL(ros::Time::now(), cloud.header.stamp);
+
+    for(MapPoint* p : map_points)
+    {
+      if(p != nullptr)
+      {
+        Eigen::Matrix4f pose;
+        cv::cv2eigen(p->GetWorldPos(), pose);
+        Eigen::Vector3f world_trans = pose.block<3,1>(0,0);
+        pcl::PointXYZ pcl_point;
+        pcl_point.x = world_trans(2);
+        pcl_point.y = -world_trans(0);
+        pcl_point.z = -world_trans(1);
+        cloud.points.push_back(pcl_point);
+      }
+    }
+    cloud.height = 1;
+    cloud.width = cloud.size();
+    cloud_pub.publish(cloud);
+    prev_size = cloud.size();
+  }
 }
 
 void ORBSLAM2Publisher::publishThread()

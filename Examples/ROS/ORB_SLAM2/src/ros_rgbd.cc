@@ -30,12 +30,14 @@
 #include <message_filters/time_synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
 #include<opencv2/core/core.hpp>
+#include <opencv2/core/eigen.hpp>
 
 #include"../../../include/System.h"
-
 #include "publisher.h"
-#include <opencv2/core/eigen.hpp>
 
 using namespace std;
 
@@ -119,13 +121,16 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
         return;
     }
 
+    pub.update_tracked_map(mpSLAM->GetAllMapPoints());
+
     cv::Mat pose = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
     // If tracking suceeded
     if(!pose.empty())
     {
       Eigen::Matrix4f p = Eigen::Matrix4f::Identity();
-      cv2eigen(pose,p);
+      cv::cv2eigen(pose,p);
       pub.update_pose(Eigen::Affine3d(p.cast<double>()));
+
     }
 }
 

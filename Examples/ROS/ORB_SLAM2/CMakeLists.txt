@@ -44,13 +44,18 @@ find_package(catkin REQUIRED COMPONENTS
 roscpp
 tf2
 tf2_eigen
+pcl_ros
 )
+
+find_package(PCL REQUIRED)
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
 ${PROJECT_SOURCE_DIR}/../../../
 ${PROJECT_SOURCE_DIR}/../../../include
 ${Pangolin_INCLUDE_DIRS}
+${CATKIN_INCLUDE_DIRS}
+${PCL_INCLUDE_DIRS}
 )
 
 set(LIBS 
@@ -60,6 +65,8 @@ ${Pangolin_LIBRARIES}
 ${PROJECT_SOURCE_DIR}/../../../Thirdparty/DBoW2/lib/libDBoW2.so
 ${PROJECT_SOURCE_DIR}/../../../Thirdparty/g2o/lib/libg2o.so
 ${PROJECT_SOURCE_DIR}/../../../lib/libORB_SLAM2.so
+${CATKIN_LIBRARIES}
+${PCL_LIBRARIES}
 )
 
 # Node for monocular camera
@@ -92,7 +99,6 @@ ${LIBS}
 )
 
 # Node for RGB-D camera
-add_definitions(-DHAS_ROS)
 rosbuild_add_executable(RGBD
 src/ros_rgbd.cc
 src/publisher.cc

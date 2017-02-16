@@ -31,13 +31,25 @@
 #include <mutex>
 #include <memory>
 
+#include <pcl_ros/point_cloud.h>
+#include <pcl/point_types.h>
+
+namespace ORB_SLAM2
+{
+  class MapPoint;
+} /* ORB_SLAM2 */
+
+
 class ORBSLAM2Publisher
 {
  public:
+  using PCLCloud = pcl::PointCloud<pcl::PointXYZ>;
+
   ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate);
   ~ORBSLAM2Publisher();
 
   void update_pose(const Eigen::Affine3d& pose);
+  void update_tracked_map(const std::vector<ORB_SLAM2::MapPoint*>& map_points);
 
  private:
   void publishThread();
@@ -51,5 +63,8 @@ class ORBSLAM2Publisher
   std::mutex mut;
   std::thread th;
   geometry_msgs::TransformStamped tf;
+
+
+  ros::Publisher cloud_pub;
 };
 
