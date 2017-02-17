@@ -29,32 +29,28 @@ void ORBSLAM2Publisher::update_pose(const Eigen::Affine3d& pose)
   const Eigen::Matrix3d& Rwc = pose_inv.rotation(); //Rcw.transpose();
   const Eigen::Vector3d& twc = pose_inv.translation(); //-Rwc * tcw;
 
-  // Matrix to flip sign of one of the z axis
-  Eigen::Matrix3d Sz = Eigen::Matrix3d::Identity();
-  Sz(2,2) = -1;
-
-  // Convert rotation to right-handed coordinate system
-  Eigen::Matrix3d rh = Sz * Rwc * Sz;
-  // Rotation axes
-  // ROS (x,y,z) -> ORB (z,x,y)
-  Eigen::Matrix3d rot;
-  rot << 0,1,0,
-      0,0,1,
-      1,0,0;
-  // Swap axes so that we have x forward, and y left
-  // How does this work exactly?
-  Eigen::Matrix3d r_xfwd = rot.inverse() * rh * rot;
-
-  // Remap translations to ROS frame
-  Eigen::Vector3d trans;
-  trans(0) = twc(2);
-  trans(1) = -twc(0);
-  trans(2) = -twc(1);
-
-  // Set transformed pose
   Eigen::Affine3d p = Eigen::Affine3d::Identity();
-  p.matrix().block<3,3>(0,0) = r_xfwd;
-  p.matrix().block<3,1>(0,3) = trans;
+  Eigen::Matrix3d rr;
+  rr << 0, -1, 0,
+        0, 0, -1,
+        1, 0, 0;
+
+  // Convert to NED (X forward, Y left, Z up)
+  // ORB has z forward, -x left, -y up
+  p.matrix().block<3,3>(0,0) = Rwc * rr; // r_xfwd;
+  p.matrix().block<3,1>(0,3) = twc; // trans;
+
+  // Rotate to ROS map
+  // Rotate -pi/2 around x, then pi/2 around y
+  Eigen::Matrix3d m;
+  m =
+      Eigen::AngleAxisd(-0.5*M_PI, Eigen::Vector3d::UnitX())
+      * Eigen::AngleAxisd(0.5*M_PI,  Eigen::Vector3d::UnitY());
+  Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
+  M.block<3,3>(0,0) = m;
+
+  // Rotate whole cordinate system to match with ROS map
+  p.matrix() = M * p.matrix();
 
   geometry_msgs::TransformStamped msg = tf2::eigenToTransform(p);
   msg.header.stamp = ros::Time::now();
