@@ -11,6 +11,10 @@
   <depend package="sensor_msgs"/>
   <depend package="image_transport"/>
   <depend package="cv_bridge"/>
+  <depend package="eigen_conversions"/>
+  <depend package="tf2"/>
+  <depend package="tf2_eigen"/>
+  <depend package="pcl_ros"/>
 
 
 </package>

@@ -48,7 +48,7 @@ public:
         : mpSLAM(pSLAM), rgb_sub(*nh, "/camera/rgb/image_raw", 1),
         depth_sub(*nh, "camera/depth_registered/image_raw", 1),
         sync(sync_pol(10), rgb_sub,depth_sub),
-        pub(nh, "/orb_slam2", 100)
+        pub(pSLAM, nh, "/ORB_SLAM2", 100)
   {
     sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD, this,_1,_2));
   }
@@ -121,7 +121,7 @@ void ImageGrabber::GrabRGBD(const sensor_msgs::ImageConstPtr& msgRGB,const senso
         return;
     }
 
-    pub.update_tracked_map(mpSLAM->GetAllMapPoints());
+    pub.update_tracked_map();
 
     cv::Mat pose = mpSLAM->TrackRGBD(cv_ptrRGB->image,cv_ptrD->image,cv_ptrRGB->header.stamp.toSec());
     // If tracking suceeded

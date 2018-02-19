@@ -1,13 +1,17 @@
 #include "publisher.h"
 
 #include <tf2_eigen/tf2_eigen.h>
+#include <eigen_conversions/eigen_msg.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <opencv2/core/eigen.hpp>
 #include "../../../include/MapPoint.h"
+#include "../../../include/System.h"
 
 using ORB_SLAM2::MapPoint;
 
-ORBSLAM2Publisher::ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate)
+ORBSLAM2Publisher::ORBSLAM2Publisher(ORB_SLAM2::System* pSLAM, std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate)
   :
+    pSLAM_(pSLAM),
     nh(nh),
     prefix(prefix), rate(rate),
     tf_caster(),
@@ -15,6 +19,8 @@ ORBSLAM2Publisher::ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const 
     th(std::bind(&ORBSLAM2Publisher::publishThread, this))
 {
   cloud_pub = nh->advertise<PCLCloud>(prefix+"/cloud", 1);
+  pose_pub = nh->advertise<geometry_msgs::PoseWithCovarianceStamped>(prefix+"/rgb_pose", 1000);
+  reset_service = nh->advertiseService(prefix+"/reset", &ORBSLAM2Publisher::reset_callback, this);
 };
 
 ORBSLAM2Publisher::~ORBSLAM2Publisher()
@@ -23,46 +29,47 @@ ORBSLAM2Publisher::~ORBSLAM2Publisher()
   th.join();
 }
 
-void ORBSLAM2Publisher::update_pose(const Eigen::Affine3d& pose)
+void ORBSLAM2Publisher::update_pose(const Eigen::Affine3d& p)
 {
-  Eigen::Affine3d pose_inv = pose.inverse();
-  const Eigen::Matrix3d& Rwc = pose_inv.rotation(); //Rcw.transpose();
-  const Eigen::Vector3d& twc = pose_inv.translation(); //-Rwc * tcw;
+  Eigen::Affine3d pose = p.inverse();
+  // Convert from right-handed Z forward (ORB_SLAM2) to
+  // right-handed X forward (ROS)
 
-  Eigen::Affine3d p = Eigen::Affine3d::Identity();
-  Eigen::Matrix3d rr;
-  rr << 0, -1, 0,
-        0, 0, -1,
-        1, 0, 0;
+  // Mapping ROS ORB_SLAM2
+  //          +x  +z
+  //          +y  -x
+  //          +z  -y
+  Eigen::Matrix3d R_toROS = Eigen::Matrix3d::Zero();
+  R_toROS(2,0) = 1;
+  R_toROS(0,1) = -1;
+  R_toROS(1,2) = -1;
+  Eigen::Matrix4d pose_ros = Eigen::Matrix4d::Identity();
+  // First transform rotation matrix such that rotation is applied in
+  // ROS frame convention.
+  // Then rotate the coordinate system from Z forward to X forward axes
+  pose_ros.block<3,3>(0,0) = R_toROS.inverse() * pose.matrix().block<3,3>(0,0) * R_toROS;
+  // Apply the translation with X-forward convention
+  pose_ros.block<3,1>(0,3) << pose(2,3), -pose(0,3), -pose(1,3);
+  Eigen::Affine3d pose_ros_affine(pose_ros);
+  // std::cout << "Pose ROS (x forward, y left, z up): \n" << pose_ros << std::endl;
+  auto transform = tf2::eigenToTransform(pose_ros_affine);
+  transform.header.frame_id = "map";
+  transform.child_frame_id = prefix+"/pose_rgbd";
+  tf_caster.sendTransform(transform);
 
-  // Convert to NED (X forward, Y left, Z up)
-  // ORB has z forward, -x left, -y up
-  p.matrix().block<3,3>(0,0) = Rwc * rr; // r_xfwd;
-  p.matrix().block<3,1>(0,3) = twc; // trans;
-
-  // Rotate to ROS map
-  // Rotate -pi/2 around x, then pi/2 around y
-  Eigen::Matrix3d m;
-  m =
-      Eigen::AngleAxisd(-0.5*M_PI, Eigen::Vector3d::UnitX())
-      * Eigen::AngleAxisd(0.5*M_PI,  Eigen::Vector3d::UnitY());
-  Eigen::Matrix4d M = Eigen::Matrix4d::Identity();
-  M.block<3,3>(0,0) = m;
-
-  // Rotate whole cordinate system to match with ROS map
-  p.matrix() = M * p.matrix();
-
-  geometry_msgs::TransformStamped msg = tf2::eigenToTransform(p);
-  msg.header.stamp = ros::Time::now();
+  // PUBLISH AS PoseWithCovarianceStamped
+  geometry_msgs::PoseWithCovarianceStamped msg;
   msg.header.frame_id = "map";
-  msg.child_frame_id = prefix+"/pose";
-  mut.lock();
-  tf = msg;
-  mut.unlock();
+  msg.header.stamp = ros::Time::now();
+  tf::poseEigenToMsg(pose_ros_affine, msg.pose.pose);
+  // XXX fill covariance
+  pose_pub.publish(msg);
 }
 
-void ORBSLAM2Publisher::update_tracked_map(const std::vector<MapPoint*>& map_points)
+void ORBSLAM2Publisher::update_tracked_map()
 {
+  const auto& map_points = pSLAM_->GetAllMapPoints();
+
   static size_t prev_size = 0;
   if(map_points.size() != prev_size)
   {
@@ -91,23 +98,21 @@ void ORBSLAM2Publisher::update_tracked_map(const std::vector<MapPoint*>& map_poi
   }
 }
 
+
+bool ORBSLAM2Publisher::reset_callback(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res)
+{
+  std::cout << "Reset service called, resetting ORB_SLAM2" << std::endl;
+  // RESET
+  pSLAM_->Reset();
+  return true;
+}
+
 void ORBSLAM2Publisher::publishThread()
 {
   ros::Rate rt(rate);
   while(running && ros::ok())
   {
-    if(mut.try_lock())
-    {
-      try
-      {
-        tf_caster.sendTransform(tf);
-      }
-      catch(const ros::serialization::StreamOverrunException & e)
-      {
-        std::cerr << "EXCEPTION WHILE PUBLISHING STATE: " << e.what() << std::endl;
-      }
-      mut.unlock();
-    }
+    ros::spinOnce();
     rt.sleep();
   }
 }

@@ -34,9 +34,11 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
 
+#include <std_srvs/Empty.h>
+
 namespace ORB_SLAM2
 {
-  class MapPoint;
+  class System;
 } /* ORB_SLAM2 */
 
 
@@ -45,26 +47,30 @@ class ORBSLAM2Publisher
  public:
   using PCLCloud = pcl::PointCloud<pcl::PointXYZ>;
 
-  ORBSLAM2Publisher(std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate);
+  ORBSLAM2Publisher(ORB_SLAM2::System* pSLAM, std::shared_ptr<ros::NodeHandle> nh, const std::string& prefix, unsigned int rate);
   ~ORBSLAM2Publisher();
 
   void update_pose(const Eigen::Affine3d& pose);
-  void update_tracked_map(const std::vector<ORB_SLAM2::MapPoint*>& map_points);
+  void update_tracked_map();
 
  private:
   void publishThread();
 
  private:
+  ORB_SLAM2::System* pSLAM_;
   std::shared_ptr<ros::NodeHandle> nh;
   std::string prefix;
   unsigned int rate;
   tf2_ros::TransformBroadcaster tf_caster;
   bool running = false;
-  std::mutex mut;
   std::thread th;
-  geometry_msgs::TransformStamped tf;
 
-
+  // Reset service
+  ros::ServiceServer reset_service;
+  ros::Publisher pose_pub;
   ros::Publisher cloud_pub;
+
+ protected:
+  bool reset_callback(std_srvs::Empty::Request &req, std_srvs::Empty::Response &res);
 };
 

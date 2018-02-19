@@ -45,6 +45,7 @@ roscpp
 tf2
 tf2_eigen
 pcl_ros
+eigen_conversions
 )
 
 find_package(PCL REQUIRED)
